@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Socket.IO Chat</title>
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <style>
+        /* Add these styles to your existing CSS or HTML file */
+
+        .editor-container {
+            width: 90%;
+            max-width: 800px;
+            background-color: blanchedalmond;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+            flex-grow: 1;
+        }
+        #toolbar {
+            margin-bottom: 10px;
+            position: -webkit-sticky; /* For Safari */
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: burlywood;
+        }
+
+        /* Sender message style */
+        .sender-message {
+            background-color: #4CAF50; /* Green */
+            color: white;
+            border-top-right-radius: 20px;
+            border-bottom-right-radius: 20px;
+            border-bottom-left-radius: 20px;
+            padding: 10px 15px;
+            margin: 5px 0;
+            align-self: flex-end;
+        }
+
+        /* Receiver message style */
+        .receiver-message {
+            background-color: #008CBA; /* Blue */
+            color: white;
+            border-top-left-radius: 20px;
+            border-bottom-right-radius: 20px;
+            border-bottom-left-radius: 20px;
+            padding: 10px 15px;
+            margin: 5px 0;
+            align-self: flex-start;
+        }
+
+        body { 
+            font-family: Arial, sans-serif; 
+            display: flex; 
+            flex-direction: column; /* Stack items vertically */
+            align-items: center; /* Center items horizontally */
+        }
+        ul { list-style-type: none; margin: 0; padding: 0; }
+        li { padding: 8px; margin-bottom: 10px; background-color: #f3f3f3; border-radius: 5px; }
+        .my-message { background-color: #d1e7dd; text-align: right; }
+        input { padding: 10px; width: 80%; }
+        button { padding: 10px; }
+        #chat-container { 
+            display: flex; 
+            flex-direction: column; /* Stack items vertically */
+            align-items: center; /* Center items horizontally */
+            width: 100%; /* Occupy full width */
+        }
+        #messages { 
+            width: 100%; /* Occupy full width */
+            max-width: 800px; /* Limit maximum width */
+            overflow-y: auto; /* Add scroll if content exceeds height */
+            flex-grow: 1; /* Allow messages to grow */
+        }
+        #users { 
+            width: 100%; /* Occupy full width */
+            max-width: 400px; /* Limit maximum width */
+            padding: 10px; 
+            background: #f0f0f0; 
+            border-left: 1px solid #ddd; 
+        }
+        #user-list { list-style-type: none; padding: 0; }
+        #user-list li { padding: 5px 0; }
+
+        /* Dark mode styles */
+        body.dark-mode { background-color: #333; color: #fff; }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <input id="search-input" type="text" placeholder="Search messages...">
+        <ul id="messages"></ul>
+            <form id="form" action="">
+            <input id="username" placeholder="Enter your name" autocomplete="off" required /><br><br>
+            <div class="editor-container">
+                <div id="toolbar">
+                    <button class="ql-bold"></button>
+                    <button class="ql-italic"></button>
+                    <button class="ql-underline"></button>
+                    <button class="ql-strike"></button>
+                    <select class="ql-color"></select>
+                    <button class="ql-script" value="sub"></button>
+                    <button class="ql-script" value="super"></button>
+                    <button class="ql-list" value="ordered"></button>
+                    <button class="ql-list" value="bullet"></button>
+                    <button class="ql-indent" value="-1"></button>
+                    <button class="ql-indent" value="+1"></button>
+                    <button class="ql-direction" value="rtl"></button>
+                    <select class="ql-align"></select>
+                    <button class="ql-link"></button>
+                    <button class="ql-image"></button>
+                    <button class="ql-video"></button>
+                    <button class="ql-clean"></button>
+                    <!-- Emoji button -->
+                    <button id="emoji-button">😀</button>
+                </div>
+                <div id="editor"></div>
+            </div>
+            <input type="file" id="fileInput" /><button>Send</button>
+        </form>
+    </div>
+    <div id="users">
+        <h2>Online Users</h2>
+        <ul id="user-list"></ul>
+    </div>
+    <audio id="notificationSound" src="notification.mp3" preload="auto"></audio>
+
+    <button id="dark-mode-toggle">Toggle Dark Mode</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    <script>
+        const socket = io();
+        const form = document.getElementById('form');
+        const input = document.getElementById('input');
+        // const messages = document.getElementById('messages');
+        const usernameInput = document.getElementById('username');
+        const userList = document.getElementById('user-list');
+        const fileInput = document.getElementById('fileInput');
+
+        const searchInput = document.getElementById('search-input');
+        const messages = document.getElementById('messages');
+        const allMessages = []; // Array to store all messages
+
+        // Function to filter messages based on search query
+        function filterMessages(query) {
+            const filteredMessages = allMessages.filter(message => message.textContent.includes(query));
+            messages.innerHTML = ''; // Clear existing messages
+            filteredMessages.forEach(message => messages.appendChild(message));
+        }
+
+        // Event listener for search input
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim().toLowerCase();
+            filterMessages(query);
+        });
+
+        socket.on('chat message', (msg) => {
+            const item = document.createElement('li');
+            item.innerHTML = `${msg.time} - ${msg.user}: ${msg.text}`;
+            item.className = msg.user === usernameInput.value ? 'my-message' : '';
+            messages.appendChild(item);
+            allMessages.push(item); // Add new message to the array
+            window.scrollTo(0, document.body.scrollHeight);
+        });
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const msg = { user: usernameInput.value, file: reader.result, fileName: file.name, time: new Date().toLocaleTimeString() };
+                    socket.emit('file upload', msg);
+                    fileInput.value = '';
+                };
+                reader.readAsDataURL(file);
+            } else {
+                const msg = { user: usernameInput.value, text: quill.root.innerHTML, time: new Date().toLocaleTimeString() };
+                socket.emit('chat message', msg);
+                quill.root.innerHTML = '';
+            }
+        });
+
+        socket.on('file upload', (msg) => {
+            const item = document.createElement('li');
+            const link = document.createElement('a');
+            link.href = msg.file;
+            link.download = msg.fileName;
+            link.textContent = `${msg.time} - ${msg.user} shared a file: ${msg.fileName}`;
+            item.appendChild(link);
+            item.className = msg.user === usernameInput.value ? 'my-message' : '';
+            messages.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+        });
+
+        socket.on('chat message', (msg) => {
+            const item = document.createElement('li');
+            item.innerHTML = `${msg.time} - ${msg.user}: ${msg.text}`;
+            item.className = msg.user === usernameInput.value ? 'my-message' : '';
+            messages
+            messages.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+        });
+
+        // Initialize Quill editor
+        var quill = new Quill('#editor', {
+            modules: {
+                toolbar: {
+                    container: '#toolbar',
+                    handlers: {
+                        'emoji': function() {
+                            // Add your emoji picker logic here
+                            alert('Emoji picker will be implemented here');
+                        }
+                    }
+                }
+            },
+            theme: 'snow'
+        });
+
+        // Dark mode toggle
+        const darkModeToggle = document.getElementById('dark-mode-toggle');
+        darkModeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+        });
+
+        // Typing indicators
+        input.addEventListener('input', () => {
+            if (input.value) {
+                socket.emit('typing', usernameInput.value);
+            } else {
+                socket.emit('stop typing');
+            }
+        });
+
+        socket.on('typing', (username) => {
+            const typingIndicator = document.getElementById('typing-indicator');
+            if (!typingIndicator) {
+                const indicator = document.createElement('div');
+                indicator.id = 'typing-indicator';
+                indicator.textContent = `${username} is typing...`;
+                document.body.appendChild(indicator);
+            }
+        });
+
+        socket.on('stop typing', () => {
+            const typingIndicator = document.getElementById('typing-indicator');
+            if (typingIndicator) {
+                document.body.removeChild(typingIndicator);
+            }
+        });
+    </script>
+</body>
+</html>
+
+
+       
